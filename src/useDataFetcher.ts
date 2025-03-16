@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, use } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import axios, { AxiosRequestConfig, AxiosResponse } from "axios";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
@@ -16,6 +16,7 @@ interface UseHttpOptions {
   credentials?: boolean;
   autoRefresh?: number;
   wsUrl?: string;
+  timeout?: number;
 }
 
 interface UseHttpResponse<TResponse> {
@@ -24,7 +25,7 @@ interface UseHttpResponse<TResponse> {
   error: string | null;
   refetch: () => void;
   cancel: () => void;
-  wsData: any;
+  wsData: TResponse | null;
   sendMessage: (message: any) => void;
   closeWebSocket: () => void;
   wsState: "connecting" | "open" | "closed" | "error";
@@ -43,15 +44,17 @@ export function useDataFetcher<TResponse = any>({
   credentials = false,
   autoRefresh = 0,
   wsUrl,
+  timeout = 15000,
 }: UseHttpOptions): UseHttpResponse<TResponse> {
   const [data, setData] = useState<TResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [wsData, setWsData] = useState<TResponse | null>(null);
+  const [wsData, setWsData] = useState<any | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMounted = useRef(true);
+  const latestRequestIdRef = useRef<number>(0);
   const [wsState, setWsState] = useState<"connecting" | "open" | "closed" | "error">("connecting");
   const [wsMessagesQueue, setWsMessagesQueue] = useState<any[]>([]);
   const [isFirst, setIsFirst] = useState(true);
@@ -75,12 +78,14 @@ export function useDataFetcher<TResponse = any>({
       });
       setWsMessagesQueue([]);
     }
-  }, [wsState]);
+  }, [wsState, wsMessagesQueue]);
 
   const fetchData = useCallback(async (attempts = 0) => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
 
     const retryDelay = Math.min(100 * 2 ** attempts, 5000);
+    const requestId = Date.now(); // Unique identifier for this request
+    const currentRequestId = requestId; // Capture for closure
 
     timeoutRef.current = setTimeout(async () => {
       try {
@@ -102,6 +107,7 @@ export function useDataFetcher<TResponse = any>({
           params: queryParams,
           signal: abortControllerRef.current.signal,
           withCredentials: credentials,
+          timeout: timeout,
         };
 
         if(method !== "GET" && body) {
@@ -109,20 +115,31 @@ export function useDataFetcher<TResponse = any>({
         }
 
         const response: AxiosResponse<TResponse> = await axios(config);
-        if (isMounted.current) setData(response.data);
+        
+        // Only update state if this is still the most recent request
+        if (isMounted.current && currentRequestId === latestRequestIdRef.current) {
+          setData(response.data);
+        }
       } catch (err: any) {
         if (axios.isCancel(err)) return;
         if (attempts < retry) {
           setTimeout(() => fetchData(attempts + 1), retryDelay);
         } else {
-          if (isMounted.current) setError(err.message || "Something went wrong");
+          if (isMounted.current && currentRequestId === latestRequestIdRef.current) {
+            setError(err.response?.data?.message || err.message || "Something went wrong");
+          }
         }
       } finally {
-        if (isMounted.current) setLoading(false);
+        if (isMounted.current && currentRequestId === latestRequestIdRef.current) {
+          setLoading(false);
+        }
       }
     }, !isFirst ? debounce : 0);
+    
+    // Update the latest request ID
+    latestRequestIdRef.current = requestId;
     setIsFirst(false);
-  }, [url, method, body, headers, queryParams, retry, debounce, baseUrl, credentials]);
+  }, [url, method, body, headers, queryParams, retry, debounce, baseUrl, credentials, timeout]);
 
   const fetchDataRef = useRef(fetchData);
   useEffect(() => {
@@ -135,13 +152,15 @@ export function useDataFetcher<TResponse = any>({
     }
   }, [autoFetch, wsUrl]);
 
-    // ===========================
-    // WebSocket Logic
-    // ===========================
+  // ===========================
+  // WebSocket Logic
+  // ===========================
   useEffect(() => {
     if (!wsUrl) return;
 
     let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = retry * 2; // Adding a maximum limit for reconnections
+    
     const connectWebSocket = () => {
       if (wsRef.current) return;
 
@@ -155,7 +174,12 @@ export function useDataFetcher<TResponse = any>({
       };
 
       wsRef.current.onmessage = (event) => {
-        if (isMounted.current) setWsData(JSON.parse(event.data));
+        try {
+          if (isMounted.current) setWsData(JSON.parse(event.data));
+        } catch (e) {
+          console.error("Failed to parse WebSocket message:", e);
+          setError("Failed to parse WebSocket message");
+        }
       };
 
       wsRef.current.onerror = (error) => {
@@ -167,16 +191,16 @@ export function useDataFetcher<TResponse = any>({
         console.log("WebSocket Disconnected");
         wsRef.current = null;
         setWsState("closed");
-        if (isMounted.current && reconnectAttempts < retry) {
+        if (isMounted.current && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
           reconnectAttempts++;
-          setTimeout(connectWebSocket, 1000 * reconnectAttempts);
+          setTimeout(connectWebSocket, 1000 * Math.min(reconnectAttempts, 30)); // Cap at 30 seconds
         }
       };
     };
 
     connectWebSocket();
     return () => closeWebSocket();
-  }, [wsUrl, retry]);
+  }, [wsUrl, retry, isMounted]);
 
   const sendMessage = (message: any) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
