@@ -1,0 +1,29 @@
+{
+  "name": "react-data-fetcher-hook",
+  "version": "0.0.3",
+  "description": "A data fetching hook for react with multiple features built in.",
+  "main": "dist/useDataFetcher.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest"
+  },
+  "types": "dist/useDataFetcher.d.ts",
+  "files": [
+    "dist"
+  ],
+  "author": "Innove Labs",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/react": "^19.0.10",
+    "eslint": "^9.22.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.2"
+  },
+  "peerDependencies": {
+    "react": ">=17.0.0"
+  }
+}
