@@ -111,6 +111,7 @@ function WebSocketExample() {
 | `wsData`        | `any`       | Latest WebSocket message. |
 | `sendMessage`   | `(message: any) => void` | Sends a message over WebSocket. |
 | `closeWebSocket` | `() => void` | Closes the WebSocket connection. |
+| `wsState`       | `"connecting" or "open" or "closed" or "error"` | Websocket connection status |
 
 #### `createDataFetcher(defaultOptions: UseHttpOptions)`
 Returns a custom `useFetcher` hook with preconfigured options.

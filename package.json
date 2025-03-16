@@ -1,6 +1,6 @@
 {
   "name": "react-data-fetcher-hook",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "A data fetching hook for react with multiple features built in.",
   "main": "dist/useDataFetcher.js",
   "scripts": {
