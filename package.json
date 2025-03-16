@@ -12,7 +12,7 @@
     "dist"
   ],
   "author": "Innove Labs",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "axios": "^1.8.3"
   },
